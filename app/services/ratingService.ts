@@ -112,3 +112,35 @@ export function getRatingSummariesForCourses(
 
   return summaries;
 }
+
+/**
+ * The given learner's own ratings for several courses, as courseId → rating.
+ * Courses they haven't rated are absent from the map.
+ */
+export function getUserRatingsForCourses(
+  userId: number,
+  courseIds: number[]
+): Map<number, number> {
+  const ratings = new Map<number, number>();
+  if (courseIds.length === 0) return ratings;
+
+  const rows = db
+    .select({
+      courseId: courseRatings.courseId,
+      rating: courseRatings.rating,
+    })
+    .from(courseRatings)
+    .where(
+      and(
+        eq(courseRatings.userId, userId),
+        inArray(courseRatings.courseId, courseIds)
+      )
+    )
+    .all();
+
+  for (const row of rows) {
+    ratings.set(row.courseId, row.rating);
+  }
+
+  return ratings;
+}

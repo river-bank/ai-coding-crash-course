@@ -25,6 +25,7 @@ gave which score.
 2. [02 — Learners rate a course on the course page](02-rate-a-course.md)
 3. [03 — Show average stars on the course page and course list](03-show-average.md)
 4. [04 — Seed demo ratings](04-seed-ratings.md)
+5. [05 — Learner's own rating on the dashboard](05-dashboard-your-rating.md)
 
 01 has to land first. 02 and 03 both depend on it and can be done in either
 order. 04 is independent of 02/03.

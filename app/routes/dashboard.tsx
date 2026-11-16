@@ -2,7 +2,9 @@ import { Link } from "react-router";
 import type { Route } from "./+types/dashboard";
 import { getUserEnrolledCourses } from "~/services/enrollmentService";
 import { calculateProgress, getCompletedLessonCount, getTotalLessonCount, getNextIncompleteLesson } from "~/services/progressService";
+import { getUserRatingsForCourses } from "~/services/ratingService";
 import { getCurrentUserId } from "~/lib/session";
+import { YourRatingLink } from "~/components/star-rating";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -27,6 +29,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const enrolledCourses = getUserEnrolledCourses(currentUserId);
+  const userRatings = getUserRatingsForCourses(
+    currentUserId,
+    enrolledCourses.map((e) => e.courseId)
+  );
 
   const coursesWithProgress = enrolledCourses.map((enrollment) => {
     const progress = calculateProgress(
@@ -53,6 +59,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       totalLessons,
       nextLessonId: nextLesson?.id ?? null,
       isCompleted,
+      userRating: userRatings.get(enrollment.courseId) ?? null,
     };
   });
 
@@ -175,6 +182,12 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                           style={{ width: `${course.progress}%` }}
                         />
                       </div>
+                      <div className="mt-4">
+                        <YourRatingLink
+                          courseSlug={course.courseSlug}
+                          rating={course.userRating}
+                        />
+                      </div>
                     </CardContent>
                     <CardFooter>
                       {course.nextLessonId ? (
@@ -239,6 +252,12 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                         <span>
                           Completed — {course.totalLessons} lessons
                         </span>
+                      </div>
+                      <div className="mt-4">
+                        <YourRatingLink
+                          courseSlug={course.courseSlug}
+                          rating={course.userRating}
+                        />
                       </div>
                     </CardContent>
                     <CardFooter>

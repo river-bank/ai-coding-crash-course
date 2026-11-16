@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { Star } from "lucide-react";
 import { cn } from "~/lib/utils";
 
@@ -115,6 +116,47 @@ export function StarInput({
           />
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Dashboard line: the learner's own rating, or a nudge to rate.
+ * Links to the "Rate this course" box on the course page.
+ */
+export function YourRatingLink({
+  courseSlug,
+  rating,
+}: {
+  courseSlug: string;
+  rating: number | null;
+}) {
+  const href = `/courses/${courseSlug}#rate`;
+
+  if (rating === null) {
+    return (
+      <Link
+        to={href}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <StarDisplay value={0} />
+        <span className="underline-offset-4 hover:underline">
+          Rate this course
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <span>Your rating</span>
+      <StarDisplay value={rating} />
+      <Link
+        to={href}
+        className="ml-auto text-xs underline-offset-4 hover:text-foreground hover:underline"
+      >
+        Change
+      </Link>
     </div>
   );
 }
