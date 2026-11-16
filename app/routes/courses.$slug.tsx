@@ -532,7 +532,7 @@ function RateCourseCard({ userRating }: { userRating: number | null }) {
   }, [fetcher.state, fetcher.data]);
 
   return (
-    <Card>
+    <Card id="rate" className="scroll-mt-6">
       <CardHeader>
         <h2 className="text-lg font-semibold">Rate this course</h2>
         <p className="text-sm text-muted-foreground">

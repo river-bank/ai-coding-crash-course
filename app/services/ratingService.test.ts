@@ -17,6 +17,7 @@ import {
   getUserRating,
   getCourseRatingSummary,
   getRatingSummariesForCourses,
+  getUserRatingsForCourses,
   isValidRating,
 } from "./ratingService";
 import { enrollUser } from "./enrollmentService";
@@ -159,6 +160,36 @@ describe("ratingService", () => {
 
     it("returns an empty map for no course ids", () => {
       expect(getRatingSummariesForCourses([]).size).toBe(0);
+    });
+  });
+
+  describe("getUserRatingsForCourses", () => {
+    it("returns only this learner's ratings, keyed by course", () => {
+      const course2 = createCourse("course-2");
+      const course3 = createCourse("course-3");
+      const student2 = createStudent(2);
+
+      for (const c of [base.course, course2, course3]) {
+        enrollUser(base.user.id, c.id, false, false);
+      }
+      enrollUser(student2.id, course3.id, false, false);
+      rateCourse(base.user.id, base.course.id, 5);
+      rateCourse(base.user.id, course2.id, 2);
+      rateCourse(student2.id, course3.id, 1);
+
+      const ratings = getUserRatingsForCourses(base.user.id, [
+        base.course.id,
+        course2.id,
+        course3.id,
+      ]);
+
+      expect(ratings.get(base.course.id)).toBe(5);
+      expect(ratings.get(course2.id)).toBe(2);
+      expect(ratings.has(course3.id)).toBe(false);
+    });
+
+    it("returns an empty map for no course ids", () => {
+      expect(getUserRatingsForCourses(base.user.id, []).size).toBe(0);
     });
   });
 });
