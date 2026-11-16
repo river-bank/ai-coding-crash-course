@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useFetcher, useSearchParams } from "react-router";
+import { z } from "zod";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug";
 import {
@@ -13,7 +14,13 @@ import {
   getLessonProgressForCourse,
   getNextIncompleteLesson,
 } from "~/services/progressService";
+import {
+  getCourseRatingSummary,
+  getUserRating,
+  rateCourse,
+} from "~/services/ratingService";
 import { getCurrentUserId } from "~/lib/session";
+import { parseFormData } from "~/lib/validation";
 import { LessonProgressStatus } from "~/db/schema";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -37,6 +44,7 @@ import {
 } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { UserAvatar } from "~/components/user-avatar";
+import { RatingSummary, StarInput } from "~/components/star-rating";
 import { data, isRouteErrorResponse } from "react-router";
 import { formatDuration, formatPrice } from "~/lib/utils";
 import { renderMarkdown } from "~/lib/markdown.server";
@@ -71,6 +79,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   let progress = 0;
   let lessonProgressMap: Record<number, string> = {};
   let nextLessonId: number | null = null;
+  let userRating: number | null = null;
 
   if (currentUserId) {
     enrolled = isUserEnrolled(currentUserId, course.id);
@@ -88,6 +97,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
       const nextLesson = getNextIncompleteLesson(currentUserId, course.id);
       nextLessonId = nextLesson?.id ?? null;
+
+      userRating = getUserRating(currentUserId, course.id);
     }
   }
 
@@ -101,6 +112,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? calculatePppPrice(courseWithDetails.price, country)
     : courseWithDetails.price;
   const tierInfo = getCountryTierInfo(country);
+  const ratingSummary = getCourseRatingSummary(course.id);
 
   return {
     course: courseWithDetails,
@@ -113,10 +125,51 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     currentUserId,
     pppPrice,
     tierInfo,
+    ratingSummary,
+    userRating,
   };
 }
 
-// No action — enrollment is handled via the purchase confirmation page
+// Enrollment is handled via the purchase confirmation page.
+// The only action here is an enrolled learner rating the course.
+const rateSchema = z.object({
+  intent: z.literal("rate"),
+  rating: z.coerce
+    .number()
+    .int("Rating must be a whole number.")
+    .min(1, "Rating must be between 1 and 5.")
+    .max(5, "Rating must be between 1 and 5."),
+});
+
+export async function action({ params, request }: Route.ActionArgs) {
+  const currentUserId = await getCurrentUserId(request);
+  if (!currentUserId) {
+    throw data("You must be signed in to rate a course.", { status: 401 });
+  }
+
+  const course = getCourseBySlug(params.slug);
+  if (!course) {
+    throw data("Course not found", { status: 404 });
+  }
+
+  if (course.instructorId === currentUserId) {
+    throw data("You can't rate your own course.", { status: 403 });
+  }
+
+  if (!isUserEnrolled(currentUserId, course.id)) {
+    throw data("Only enrolled learners can rate this course.", {
+      status: 403,
+    });
+  }
+
+  const parsed = parseFormData(await request.formData(), rateSchema);
+  if (!parsed.success) {
+    return data({ errors: parsed.errors }, { status: 400 });
+  }
+
+  rateCourse(currentUserId, course.id, parsed.data.rating);
+  return { success: true, rating: parsed.data.rating };
+}
 
 export function HydrateFallback() {
   return (
@@ -181,6 +234,8 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
     currentUserId,
     pppPrice,
     tierInfo,
+    ratingSummary,
+    userRating,
   } = loaderData;
   const isInstructor = currentUserId === course.instructorId;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -320,6 +375,10 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
               {formatDuration(totalDuration, true, false, false)} total
             </span>
           )}
+          <RatingSummary
+            average={ratingSummary.average}
+            count={ratingSummary.count}
+          />
         </div>
       </div>
 
@@ -360,93 +419,138 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
         </div>
 
         {/* Right column: progress/enrollment card */}
-        <div className="space-y-6">
-          <Card className="sticky top-6">
-            <CardHeader>
-              <h2 className="text-lg font-semibold">
-                {isInstructor
-                  ? "Your Course"
-                  : enrolled
-                    ? "Your Progress"
-                    : "Get Started"}
-              </h2>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {isInstructor ? (
-                <Link to={`/instructor/${course.id}`}>
-                  <Button className="w-full">
-                    <Pencil className="mr-2 size-4" />
-                    Manage Course
-                  </Button>
-                </Link>
-              ) : enrolled ? (
-                <>
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span>{progress}% complete</span>
-                  </div>
-                  <div className="mb-4 h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  {course.modules.length > 0 &&
-                    (() => {
-                      const targetLessonId =
-                        nextLessonId ?? course.modules[0].lessons[0]?.id;
-                      return targetLessonId ? (
-                        <Link
-                          to={`/courses/${course.slug}/lessons/${targetLessonId}`}
-                        >
-                          <Button className="w-full">
-                            <PlayCircle className="mr-2 size-4" />
-                            {progress > 0
-                              ? "Continue Learning"
-                              : "Start Course"}
-                          </Button>
-                        </Link>
-                      ) : null;
-                    })()}
-                  <Link to={teamPurchaseLink}>
-                    <Button variant="outline" className="w-full">
-                      <Users className="mr-2 size-4" />
-                      Buy More Seats
+        <div>
+          <div className="sticky top-6 space-y-6">
+            <Card>
+              <CardHeader>
+                <h2 className="text-lg font-semibold">
+                  {isInstructor
+                    ? "Your Course"
+                    : enrolled
+                      ? "Your Progress"
+                      : "Get Started"}
+                </h2>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isInstructor ? (
+                  <Link to={`/instructor/${course.id}`}>
+                    <Button className="w-full">
+                      <Pencil className="mr-2 size-4" />
+                      Manage Course
                     </Button>
                   </Link>
-                </>
-              ) : (
-                enrollButton
-              )}
-              <div className="space-y-2 pt-2 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="size-4" />
-                  <span>{lessonCount} lessons</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="size-4" />
-                  <span>
-                    {formatDuration(totalDuration, true, false, false)} total
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <UserAvatar
-                    name={course.instructorName}
-                    avatarUrl={course.instructorAvatarUrl}
-                    className="size-5"
-                  />
-                  <span>Taught by {course.instructorName}</span>
-                </div>
-                {course.instructorBio && (
-                  <p className="mt-2 text-xs leading-relaxed">
-                    {course.instructorBio}
-                  </p>
+                ) : enrolled ? (
+                  <>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span>{progress}% complete</span>
+                    </div>
+                    <div className="mb-4 h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    {course.modules.length > 0 &&
+                      (() => {
+                        const targetLessonId =
+                          nextLessonId ?? course.modules[0].lessons[0]?.id;
+                        return targetLessonId ? (
+                          <Link
+                            to={`/courses/${course.slug}/lessons/${targetLessonId}`}
+                          >
+                            <Button className="w-full">
+                              <PlayCircle className="mr-2 size-4" />
+                              {progress > 0
+                                ? "Continue Learning"
+                                : "Start Course"}
+                            </Button>
+                          </Link>
+                        ) : null;
+                      })()}
+                    <Link to={teamPurchaseLink}>
+                      <Button variant="outline" className="w-full">
+                        <Users className="mr-2 size-4" />
+                        Buy More Seats
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  enrollButton
                 )}
-              </div>
-            </CardContent>
-          </Card>
+                <div className="space-y-2 pt-2 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="size-4" />
+                    <span>{lessonCount} lessons</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="size-4" />
+                    <span>
+                      {formatDuration(totalDuration, true, false, false)} total
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <UserAvatar
+                      name={course.instructorName}
+                      avatarUrl={course.instructorAvatarUrl}
+                      className="size-5"
+                    />
+                    <span>Taught by {course.instructorName}</span>
+                  </div>
+                  {course.instructorBio && (
+                    <p className="mt-2 text-xs leading-relaxed">
+                      {course.instructorBio}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            {enrolled && !isInstructor && (
+              <RateCourseCard userRating={userRating} />
+            )}
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function RateCourseCard({ userRating }: { userRating: number | null }) {
+  const fetcher = useFetcher<typeof action>();
+
+  // Show the submitted score straight away, before the server replies.
+  const pending = fetcher.formData?.get("rating");
+  const current = pending ? Number(pending) : userRating;
+
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if ("success" in fetcher.data && fetcher.data.success) {
+      toast.success("Thanks for rating this course.");
+    } else if ("errors" in fetcher.data) {
+      const firstError = Object.values(fetcher.data.errors)[0];
+      if (firstError) toast.error(firstError);
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-lg font-semibold">Rate this course</h2>
+        <p className="text-sm text-muted-foreground">
+          Your rating is anonymous. Only the average is shown.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="rate" />
+          <StarInput value={current} disabled={fetcher.state !== "idle"} />
+        </fetcher.Form>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {current
+            ? `You rated this ${current} ${current === 1 ? "star" : "stars"}. Click a star to change it.`
+            : "Click a star to rate."}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

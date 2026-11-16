@@ -67,7 +67,8 @@ export function getUserRating(userId: number, courseId: number) {
 
 function toSummary(average: number | null, count: number): RatingSummary {
   return {
-    average: count > 0 && average !== null ? Math.round(average * 10) / 10 : null,
+    average:
+      count > 0 && average !== null ? Math.round(average * 10) / 10 : null,
     count,
   };
 }
