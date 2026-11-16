@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Link, useFetcher, useSearchParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useFetcher, useLocation, useSearchParams } from "react-router";
 import { z } from "zod";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug";
@@ -380,6 +380,9 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
             count={ratingSummary.count}
           />
         </div>
+        {enrolled && !isInstructor && (
+          <RateCourseStrip userRating={userRating} />
+        )}
       </div>
 
       {/* Two-column: sales copy left, sidebar right */}
@@ -504,9 +507,6 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                 </div>
               </CardContent>
             </Card>
-            {enrolled && !isInstructor && (
-              <RateCourseCard userRating={userRating} />
-            )}
           </div>
         </div>
       </div>
@@ -514,8 +514,13 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
   );
 }
 
-function RateCourseCard({ userRating }: { userRating: number | null }) {
+// Shown in the course header (not the sidebar) so enrolled learners see it
+// without scrolling. The dashboard links here with #rate.
+function RateCourseStrip({ userRating }: { userRating: number | null }) {
   const fetcher = useFetcher<typeof action>();
+  const location = useLocation();
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [highlight, setHighlight] = useState(false);
 
   // Show the submitted score straight away, before the server replies.
   const pending = fetcher.formData?.get("rating");
@@ -531,26 +536,36 @@ function RateCourseCard({ userRating }: { userRating: number | null }) {
     }
   }, [fetcher.state, fetcher.data]);
 
+  // Arriving from the dashboard's "Rate this course" link: bring the strip
+  // into view and flash it so the learner knows where to click.
+  useEffect(() => {
+    if (location.hash !== "#rate" || !stripRef.current) return;
+    stripRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlight(true);
+    const timer = setTimeout(() => setHighlight(false), 2500);
+    return () => clearTimeout(timer);
+  }, [location.hash, location.key]);
+
   return (
-    <Card id="rate" className="scroll-mt-6">
-      <CardHeader>
-        <h2 className="text-lg font-semibold">Rate this course</h2>
-        <p className="text-sm text-muted-foreground">
-          Your rating is anonymous. Only the average is shown.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <fetcher.Form method="post">
-          <input type="hidden" name="intent" value="rate" />
-          <StarInput value={current} disabled={fetcher.state !== "idle"} />
-        </fetcher.Form>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {current
-            ? `You rated this ${current} ${current === 1 ? "star" : "stars"}. Click a star to change it.`
-            : "Click a star to rate."}
-        </p>
-      </CardContent>
-    </Card>
+    <div
+      id="rate"
+      ref={stripRef}
+      className={`mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/40 px-4 py-3 transition-shadow duration-500 ${
+        highlight ? "ring-2 ring-amber-400" : ""
+      }`}
+    >
+      <span className="font-semibold">
+        {current ? "Your rating" : "Rate this course"}
+      </span>
+      <fetcher.Form method="post">
+        <input type="hidden" name="intent" value="rate" />
+        <StarInput value={current} disabled={fetcher.state !== "idle"} />
+      </fetcher.Form>
+      <span className="text-sm text-muted-foreground">
+        {current ? "Click a star to change it." : "Click a star to rate it."}{" "}
+        Anonymous: only the average is shown.
+      </span>
+    </div>
   );
 }
 

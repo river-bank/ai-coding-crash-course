@@ -12,7 +12,7 @@ deciding whether to enrol, and dashboard learners already have.
 
 - Not rated yet: empty stars + "Rate this course" link.
 - Rated: "Your rating" + filled stars + "Change" link.
-- Both link to `/courses/:slug#rate`, which jumps to the "Rate this course" box.
+- Both link to `/courses/:slug#rate`, which scrolls to and briefly highlights the rating strip.
 - Shown on In Progress and Completed cards.
 - New `getUserRatingsForCourses(userId, courseIds)` in `ratingService` so it's one
   query for all cards, not one per card.
